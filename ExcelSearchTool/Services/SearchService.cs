@@ -10,15 +10,16 @@ public sealed class SearchProgress
     public int Matches { get; init; }
 }
 
-public sealed class SearchService(
-    FileNameSearchService fileNameSearchService,
-    ContentSearchService contentSearchService,
-    ErrorLogger errorLogger)
+public sealed class SearchService(ErrorLogger errorLogger)
 {
-    private static readonly string[] ExcelExtensions = [".xlsx", ".xlsm", ".xlsb"];
-    private readonly FileNameSearchService _fileNameSearchService = fileNameSearchService;
-    private readonly ContentSearchService _contentSearchService = contentSearchService;
+    private static readonly HashSet<string> ExcelExtensions = [".xlsx"];
+    private static readonly HashSet<string> TextExtensions = [".txt", ".log", ".csv"];
+    private static readonly HashSet<string> CodeExtensions = [".cs", ".java", ".js", ".ts", ".json", ".xml", ".html", ".css"];
+
     private readonly ErrorLogger _errorLogger = errorLogger;
+    private readonly ISearchHandler _excelHandler = new ExcelSearchHandler(errorLogger);
+    private readonly ISearchHandler _textHandler = new TextSearchHandler(errorLogger);
+    private readonly ISearchHandler _codeHandler = new CodeSearchHandler(errorLogger);
 
     public async Task<IReadOnlyCollection<SearchResult>> SearchAsync(
         SearchOptions options,
@@ -26,9 +27,11 @@ public sealed class SearchService(
         CancellationToken cancellationToken)
     {
         var files = options.Folders
-            .SelectMany(folder => Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories))
-            .Where(path => ExcelExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+            .SelectMany(SafeEnumerateFiles)
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(path => new FileInfo(path))
+            .Where(file => IsSupported(file.Extension, options))
+            .Where(file => file.Exists && file.Length <= options.MaxFileSizeBytes)
             .ToArray();
 
         var results = new ConcurrentBag<SearchResult>();
@@ -41,19 +44,27 @@ public sealed class SearchService(
             {
                 ct.ThrowIfCancellationRequested();
 
-                if (_fileNameSearchService.IsMatch(file, options, regex))
+                if (options.SearchFileName && IsNameMatch(file.Name, options, regex))
                 {
-                    results.Add(_fileNameSearchService.ToResult(file));
+                    results.Add(new SearchResult
+                    {
+                        FileName = file.Name,
+                        FilePath = file.FullName,
+                        FileType = ResolveTypeLabel(file.Extension),
+                        Location = "File Name",
+                        Content = file.Name
+                    });
                 }
 
-                if (options.SearchContent && _contentSearchService.CanContainMatch(file, options))
+                var context = new SearchContext
                 {
-                    var contentMatches = await _contentSearchService.FindMatchesAsync(file, options, regex, ct).ConfigureAwait(false);
-                    foreach (var match in contentMatches)
-                    {
-                        results.Add(match);
-                    }
-                }
+                    Options = options,
+                    Regex = regex,
+                    CancellationToken = ct,
+                    Results = results
+                };
+
+                await ResolveHandler(file.Extension).SearchAsync(file, context).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -61,24 +72,72 @@ public sealed class SearchService(
             }
             catch (Exception ex)
             {
-                await _errorLogger.LogAsync($"Unhandled file search error: {file}", ex).ConfigureAwait(false);
+                await _errorLogger.LogAsync($"Unhandled search error: {file.FullName}", ex).ConfigureAwait(false);
             }
             finally
             {
-                var currentScanned = Interlocked.Increment(ref scanned);
-                progress?.Report(new SearchProgress
-                {
-                    FilesScanned = currentScanned,
-                    Matches = results.Count
-                });
+                var current = Interlocked.Increment(ref scanned);
+                progress?.Report(new SearchProgress { FilesScanned = current, Matches = results.Count });
             }
         }).ConfigureAwait(false);
 
         return results
-            .OrderBy(item => item.FileName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.SheetIndex)
-            .ThenBy(item => item.Row)
+            .OrderBy(r => r.FileName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(r => r.Location, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    public int CountEligibleFiles(SearchOptions options)
+    {
+        return options.Folders
+            .SelectMany(SafeEnumerateFiles)
+            .Select(path => new FileInfo(path))
+            .Count(file => file.Exists && file.Length <= options.MaxFileSizeBytes && IsSupported(file.Extension, options));
+    }
+
+    private static IEnumerable<string> SafeEnumerateFiles(string folder)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories);
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static bool IsSupported(string extension, SearchOptions options)
+    {
+        extension = extension.ToLowerInvariant();
+        return (options.IncludeExcel && ExcelExtensions.Contains(extension))
+            || (options.IncludeText && TextExtensions.Contains(extension))
+            || (options.IncludeCode && CodeExtensions.Contains(extension));
+    }
+
+    private ISearchHandler ResolveHandler(string extension)
+    {
+        extension = extension.ToLowerInvariant();
+        if (ExcelExtensions.Contains(extension)) return _excelHandler;
+        if (TextExtensions.Contains(extension)) return _textHandler;
+        if (CodeExtensions.Contains(extension)) return _codeHandler;
+        return _textHandler;
+    }
+
+    private static string ResolveTypeLabel(string extension)
+    {
+        extension = extension.ToLowerInvariant();
+        if (ExcelExtensions.Contains(extension)) return "Excel";
+        if (TextExtensions.Contains(extension)) return "Text";
+        if (CodeExtensions.Contains(extension)) return "Code";
+        return "Unknown";
+    }
+
+    private static bool IsNameMatch(string fileName, SearchOptions options, Regex? regex)
+    {
+        return regex is not null
+            ? regex.IsMatch(fileName)
+            : fileName.Contains(options.Query, options.CaseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
     }
 
     private static Regex? BuildRegex(SearchOptions options)

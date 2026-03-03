@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -23,6 +24,9 @@ public sealed class MainForm : Form
     private readonly ComboBox _modeComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly CheckBox _regexCheck = new() { Text = "Regex", AutoSize = true };
     private readonly CheckBox _caseSensitiveCheck = new() { Text = "Case", AutoSize = true };
+    private readonly CheckBox _excelFilterCheck = new() { Text = "Excel", Checked = true, AutoSize = true };
+    private readonly CheckBox _textFilterCheck = new() { Text = "Text", Checked = true, AutoSize = true };
+    private readonly CheckBox _codeFilterCheck = new() { Text = "Code", Checked = true, AutoSize = true };
 
     private readonly ListBox _foldersList = new();
     private readonly DataGridView _resultsGrid = new();
@@ -43,12 +47,12 @@ public sealed class MainForm : Form
     public MainForm()
     {
         var errorLogger = new ErrorLogger();
-        _searchService = new SearchService(new FileNameSearchService(), new ContentSearchService(errorLogger), errorLogger);
+        _searchService = new SearchService(errorLogger);
 
-        Text = "Excel Search Tool";
-        Width = 1200;
-        Height = 800;
-        MinimumSize = new Size(980, 680);
+        Text = "Universal File Search Tool";
+        Width = 1300;
+        Height = 820;
+        MinimumSize = new Size(1040, 700);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9.5F);
         BackColor = Color.FromArgb(245, 247, 250);
@@ -65,7 +69,7 @@ public sealed class MainForm : Form
         var history = await _historyService.LoadAsync();
         _queryComboBox.Items.Clear();
         _queryComboBox.Items.AddRange(history.ToArray());
-        SetCueBanner(_queryComboBox, "Type keyword, filename, or regex pattern...");
+        SetCueBanner(_queryComboBox, "Search in Excel, text, and source code files...");
     }
 
     private void BuildLayout()
@@ -108,7 +112,7 @@ public sealed class MainForm : Form
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 8,
+            ColumnCount = 11,
             RowCount = 1,
             Margin = Padding.Empty,
             Padding = Padding.Empty
@@ -116,21 +120,17 @@ public sealed class MainForm : Form
 
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 95));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
 
-        var keywordLabel = new Label
-        {
-            Text = "Keyword",
-            AutoSize = true,
-            Anchor = AnchorStyles.Left,
-            Margin = new Padding(0, 0, ControlSpacing, 0)
-        };
-
+        var keywordLabel = new Label { Text = "Keyword", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, ControlSpacing, 0) };
         ConfigureStandardControl(_queryComboBox);
         _queryComboBox.Dock = DockStyle.Fill;
         _queryComboBox.Margin = new Padding(0, 0, ControlSpacing, 0);
@@ -141,6 +141,9 @@ public sealed class MainForm : Form
 
         ConfigureCheck(_regexCheck);
         ConfigureCheck(_caseSensitiveCheck);
+        ConfigureCheck(_excelFilterCheck);
+        ConfigureCheck(_textFilterCheck);
+        ConfigureCheck(_codeFilterCheck);
 
         ConfigureActionButton(_searchButton, Color.FromArgb(37, 99, 235), Color.White);
         ConfigureActionButton(_stopButton, Color.FromArgb(220, 38, 38), Color.White);
@@ -151,17 +154,20 @@ public sealed class MainForm : Form
         grid.Controls.Add(_modeComboBox, 2, 0);
         grid.Controls.Add(_regexCheck, 3, 0);
         grid.Controls.Add(_caseSensitiveCheck, 4, 0);
-        grid.Controls.Add(_searchButton, 5, 0);
-        grid.Controls.Add(_stopButton, 6, 0);
-        grid.Controls.Add(_exportButton, 7, 0);
+        grid.Controls.Add(_excelFilterCheck, 5, 0);
+        grid.Controls.Add(_textFilterCheck, 6, 0);
+        grid.Controls.Add(_codeFilterCheck, 7, 0);
+        grid.Controls.Add(_searchButton, 8, 0);
+        grid.Controls.Add(_stopButton, 9, 0);
+        grid.Controls.Add(_exportButton, 10, 0);
 
         container.Controls.Add(grid);
 
         _toolTip.SetToolTip(_queryComboBox, "Enter keyword, filename, or regex pattern");
-        _toolTip.SetToolTip(_modeComboBox, "Choose whether to search content, filename, or both");
-        _toolTip.SetToolTip(_regexCheck, "Enable regex matching");
-        _toolTip.SetToolTip(_caseSensitiveCheck, "Match uppercase/lowercase exactly");
-        _toolTip.SetToolTip(_exportButton, "Export current results to CSV");
+        _toolTip.SetToolTip(_modeComboBox, "Search content and/or file names");
+        _toolTip.SetToolTip(_excelFilterCheck, "Include .xlsx files");
+        _toolTip.SetToolTip(_textFilterCheck, "Include .txt, .log, .csv files");
+        _toolTip.SetToolTip(_codeFilterCheck, "Include source/code-like file types");
 
         return container;
     }
@@ -169,16 +175,7 @@ public sealed class MainForm : Form
     private Control BuildFolderSection()
     {
         var container = CreateSectionPanel();
-
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty
-        };
-
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
 
@@ -186,19 +183,7 @@ public sealed class MainForm : Form
         _foldersList.IntegralHeight = false;
         _foldersList.Margin = new Padding(0, 0, SectionSpacing, 0);
 
-        var buttonStack = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            ColumnCount = 1,
-            RowCount = 3,
-            AutoSize = true,
-            Padding = Padding.Empty,
-            Margin = Padding.Empty
-        };
-        buttonStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        buttonStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        buttonStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
+        var buttonStack = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, RowCount = 3, AutoSize = true, Padding = Padding.Empty, Margin = Padding.Empty };
         ConfigureSideButton(_addFolderButton);
         ConfigureSideButton(_removeFolderButton);
         ConfigureSideButton(_clearFoldersButton);
@@ -227,16 +212,7 @@ public sealed class MainForm : Form
     private Control BuildStatusSection()
     {
         var container = CreateSectionPanel();
-
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty
-        };
-
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
@@ -246,36 +222,20 @@ public sealed class MainForm : Form
 
         grid.Controls.Add(_progressBar, 0, 0);
         grid.Controls.Add(_statusLabel, 1, 0);
-
         container.Controls.Add(grid);
         return container;
     }
 
-    private Panel CreateSectionPanel()
-    {
-        return new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = Color.White,
-            Padding = new Padding(SectionPadding)
-        };
-    }
+    private Panel CreateSectionPanel() => new() { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(SectionPadding) };
 
     private void ConfigureModeCombo()
     {
-        if (_modeComboBox.Items.Count > 0)
-        {
-            return;
-        }
-
+        if (_modeComboBox.Items.Count > 0) return;
         _modeComboBox.Items.AddRange(["Content + File Name", "Content Only", "File Name Only"]);
         _modeComboBox.SelectedIndex = 0;
     }
 
-    private static void ConfigureStandardControl(Control control)
-    {
-        control.Height = ControlHeight;
-    }
+    private static void ConfigureStandardControl(Control control) => control.Height = ControlHeight;
 
     private static void ConfigureCheck(CheckBox check)
     {
@@ -287,7 +247,7 @@ public sealed class MainForm : Form
     {
         button.Height = ControlHeight;
         button.Dock = DockStyle.Fill;
-        button.Margin = new Padding(0);
+        button.Margin = Padding.Empty;
         button.FlatStyle = FlatStyle.Flat;
         button.FlatAppearance.BorderSize = 0;
         button.BackColor = backColor;
@@ -322,23 +282,19 @@ public sealed class MainForm : Form
         _resultsGrid.DataSource = _results;
         _resultsGrid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(219, 234, 254);
         _resultsGrid.DefaultCellStyle.SelectionForeColor = Color.Black;
-        _resultsGrid.ColumnHeadersDefaultCellStyle.Font = new Font(Font, FontStyle.Bold);
 
         EnableDoubleBuffering(_resultsGrid);
 
-        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.FileName), HeaderText = "File", Width = 180 });
-        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.MatchType), HeaderText = "Type", Width = 110 });
-        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.SheetName), HeaderText = "Sheet", Width = 140 });
-        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.Row), HeaderText = "Row", Width = 70 });
-        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.Column), HeaderText = "Col", Width = 70 });
-        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.MatchDetail), HeaderText = "Preview", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
-        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.FilePath), HeaderText = "Path", Width = 260 });
+        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.FileName), HeaderText = "File Name", Width = 180 });
+        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.FilePath), HeaderText = "Full Path", Width = 300 });
+        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.FileType), HeaderText = "Type", Width = 90 });
+        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.Location), HeaderText = "Location", Width = 140 });
+        _resultsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(SearchResult.Content), HeaderText = "Content", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
     }
 
     private static void EnableDoubleBuffering(DataGridView grid)
     {
-        typeof(DataGridView).InvokeMember(
-            "DoubleBuffered",
+        typeof(DataGridView).InvokeMember("DoubleBuffered",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.SetProperty,
             null,
             grid,
@@ -360,6 +316,8 @@ public sealed class MainForm : Form
             _debounceTimer.Stop();
             _debounceTimer.Start();
         };
+
+        _resultsGrid.CellDoubleClick += (_, e) => OpenSelectedResult(e.RowIndex);
 
         _debounceTimer.Tick += async (_, _) =>
         {
@@ -404,7 +362,7 @@ public sealed class MainForm : Form
         _results.Clear();
         _progressBar.Value = 0;
 
-        var total = Math.Max(1, CountExcelFiles(options.Folders));
+        var total = Math.Max(1, _searchService.CountEligibleFiles(options));
         var progress = new Progress<SearchProgress>(p =>
         {
             _progressBar.Value = Math.Min(100, (int)Math.Round((double)p.FilesScanned / total * 100));
@@ -450,6 +408,12 @@ public sealed class MainForm : Form
             return null;
         }
 
+        if (!_excelFilterCheck.Checked && !_textFilterCheck.Checked && !_codeFilterCheck.Checked)
+        {
+            _statusLabel.Text = "Select at least one file type filter.";
+            return null;
+        }
+
         if (_regexCheck.Checked)
         {
             try
@@ -464,26 +428,19 @@ public sealed class MainForm : Form
         }
 
         var selectedMode = _modeComboBox.SelectedItem?.ToString() ?? "Content + File Name";
-        var searchContent = selectedMode is "Content + File Name" or "Content Only";
         var searchFileName = selectedMode is "Content + File Name" or "File Name Only";
 
         return new SearchOptions
         {
             Query = query,
-            SearchContent = searchContent,
             SearchFileName = searchFileName,
             UseRegex = _regexCheck.Checked,
             CaseSensitive = _caseSensitiveCheck.Checked,
+            IncludeExcel = _excelFilterCheck.Checked,
+            IncludeText = _textFilterCheck.Checked,
+            IncludeCode = _codeFilterCheck.Checked,
             Folders = _folderManager.Folders.ToArray()
         };
-    }
-
-    private static int CountExcelFiles(IEnumerable<string> folders)
-    {
-        return folders.Sum(folder => Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories)
-            .Count(path => path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
-                || path.EndsWith(".xlsm", StringComparison.OrdinalIgnoreCase)
-                || path.EndsWith(".xlsb", StringComparison.OrdinalIgnoreCase)));
     }
 
     private void CancelActiveSearch()
@@ -502,33 +459,50 @@ public sealed class MainForm : Form
             return;
         }
 
-        using var dialog = new SaveFileDialog
-        {
-            Filter = "CSV Files (*.csv)|*.csv",
-            FileName = $"ExcelSearchResults-{DateTime.Now:yyyyMMdd-HHmmss}.csv"
-        };
-
+        using var dialog = new SaveFileDialog { Filter = "CSV Files (*.csv)|*.csv", FileName = $"UniversalSearchResults-{DateTime.Now:yyyyMMdd-HHmmss}.csv" };
         if (dialog.ShowDialog(this) != DialogResult.OK)
         {
             return;
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("FileName,MatchType,Sheet,Row,Column,MatchDetail,FilePath");
+        csv.AppendLine("FileName,FullPath,Type,Location,Content");
         foreach (var result in _results)
         {
-            csv.AppendLine(string.Join(',',
-                Csv(result.FileName),
-                Csv(result.MatchType),
-                Csv(result.SheetName ?? string.Empty),
-                Csv(result.Row?.ToString() ?? string.Empty),
-                Csv(result.Column?.ToString() ?? string.Empty),
-                Csv(result.MatchDetail),
-                Csv(result.FilePath)));
+            csv.AppendLine(string.Join(',', Csv(result.FileName), Csv(result.FilePath), Csv(result.FileType), Csv(result.Location), Csv(result.Content)));
         }
 
         File.WriteAllText(dialog.FileName, csv.ToString(), Encoding.UTF8);
         _statusLabel.Text = $"Exported {_results.Count} rows.";
+    }
+
+    private void OpenSelectedResult(int rowIndex)
+    {
+        if (rowIndex < 0 || rowIndex >= _results.Count)
+        {
+            return;
+        }
+
+        var item = _results[rowIndex];
+        if (!File.Exists(item.FilePath))
+        {
+            _statusLabel.Text = "File no longer exists.";
+            return;
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = item.FilePath,
+                UseShellExecute = true
+            };
+            Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            _statusLabel.Text = $"Open failed: {ex.Message}";
+        }
     }
 
     private static string Csv(string value)
