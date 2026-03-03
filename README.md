@@ -1,31 +1,43 @@
-# Excel Search Tool
+# Universal File Search Tool
 
-Production-ready Windows desktop app for high-performance searching in Excel files, with automated GitHub Actions CI/CD and downloadable installer artifacts.
+Production-ready Windows desktop app for high-performance searching across Excel, text, and source-code files, with automated GitHub Actions CI/CD and downloadable installer artifacts.
+
+## Supported file types
+
+- Excel: `.xlsx`
+- Text: `.txt`, `.log`, `.csv`
+- Code/config/web: `.cs`, `.java`, `.js`, `.ts`, `.json`, `.xml`, `.html`, `.css`
 
 ## Features
 
-- Modern WinForms desktop UI with smooth DataGridView rendering.
+- Modern WinForms desktop UI with responsive layout and smooth DataGridView rendering.
 - Search modes:
-  - Content search (cell values)
-  - File name search
-  - Regex search + case sensitivity
-- Instant search with 400ms debounce.
-- Cancels previous search when a new query starts.
-- Search history persisted with auto-suggest via combo box.
+  - Content + File Name
+  - Content Only
+  - File Name Only
+- Regex + case sensitivity across all file types.
+- File-type filters (Excel/Text/Code).
+- Instant search with 400ms debounce and cancel-in-flight support.
+- Search history persisted with auto-suggest.
 - Multi-folder search support.
-- Parallelized file scanning with ZIP pre-scan to skip unlikely files.
-- EPPlus-powered workbook parsing for accurate content matches.
-- Progress bar and status counters.
-- Corrupted files are skipped and errors are logged.
+- Parallel processing with per-extension handler dispatch.
+- Excel ZIP pre-scan + EPPlus parsing for accurate cell-level location results.
+- Text/code streaming line-by-line processing (memory-efficient).
+- Large file skipping via configurable max-size threshold.
+- Binary file skip detection for text/code handlers.
+- Progress bar/status counters and CSV export.
+- Double-click result to open file with default system app/editor.
 
 ## Architecture
 
-- `SearchService`: orchestration, parallel processing, progress reporting.
-- `FileNameSearchService`: file-name match logic.
-- `ContentSearchService`: ZIP pre-scan + EPPlus content scanning.
+- `SearchService`: dispatcher/orchestrator, parallel scanning, progress reporting, regex compilation, file-type routing.
+- `ISearchHandler`: extension point for file search handlers.
+- `ExcelSearchHandler`: ZIP pre-scan + EPPlus workbook/cell search.
+- `TextSearchHandler`: streaming line search for txt/log/csv.
+- `CodeSearchHandler`: streaming line search for source/config/web files.
 - `HistoryService`: query history persistence.
-- `FolderManager`: add/remove/clear folder sources.
-- `ErrorLogger`: async file logging under `%LOCALAPPDATA%\ExcelSearchTool\errors.log`.
+- `FolderManager`: add/remove/clear folders.
+- `ErrorLogger`: async log writing under `%LOCALAPPDATA%\ExcelSearchTool\errors.log`.
 
 ## Local Build & Run
 
