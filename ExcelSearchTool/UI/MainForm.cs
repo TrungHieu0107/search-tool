@@ -40,7 +40,7 @@ public sealed class MainForm : Form
     private readonly Label _statusLabel = new() { Text = "Ready", AutoSize = true, TextAlign = ContentAlignment.MiddleRight };
     private readonly ToolTip _toolTip = new();
 
-    private readonly Timer _debounceTimer = new() { Interval = 400 };
+    private readonly System.Windows.Forms.Timer _debounceTimer = new() { Interval = 400 };
     private readonly BindingList<SearchResult> _results = [];
     private CancellationTokenSource? _searchCts;
 
