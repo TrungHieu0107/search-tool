@@ -41,7 +41,7 @@ public sealed class MainForm : Form
     private readonly ToolTip _toolTip = new();
 
     private readonly System.Windows.Forms.Timer _debounceTimer = new() { Interval = 400 };
-    private readonly BindingList<SearchResult> _results = [];
+    private readonly BindingList<SearchResult> _results = new();
     private CancellationTokenSource? _searchCts;
 
     public MainForm()
