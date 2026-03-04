@@ -43,6 +43,11 @@ public sealed class SearchContext
             return value;
         }
 
-        return string.Concat(value.AsSpan(0, index), "[[", value.AsSpan(index, Options.Query.Length), "]]", value.AsSpan(index + Options.Query.Length));
+        return string.Concat(
+            value[..index],
+            "[[",
+            value.Substring(index, Options.Query.Length),
+            "]]",
+            value[(index + Options.Query.Length)..]);
     }
 }
